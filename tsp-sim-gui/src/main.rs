@@ -1,10 +1,3 @@
-//! A demonstration of using `winit` to provide events and GFX to draw the UI.
-//!
-//! `winit` is used via the `glutin` crate which also provides an OpenGL context for drawing
-//! `conrod_core::render::Primitives` to the screen.
-
-#![allow(unused_variables)]
-
 #[macro_use]
 extern crate conrod_core;
 extern crate conrod_gfx;
@@ -13,14 +6,13 @@ extern crate gfx;
 extern crate gfx_core;
 extern crate gfx_window_glutin;
 extern crate glutin;
-extern crate winit;
-
 extern crate rand;
+extern crate winit;
 
 use gfx::Device;
 
-const WIN_W: u32 = 600;
-const WIN_H: u32 = 420;
+const WIN_W: u32 = 800;
+const WIN_H: u32 = 600;
 const CLEAR_COLOR: [f32; 4] = [0.2, 0.2, 0.2, 1.0];
 
 type DepthFormat = gfx::format::DepthStencil;
@@ -40,15 +32,18 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
     }
 }
 
-pub struct DemoApp {
+// Generate the winit <-> conrod_core type conversion fns.
+conrod_winit::conversion_fns!();
+
+pub struct App {
     ball_xy: conrod_core::Point,
     ball_color: conrod_core::Color,
     sine_frequency: f32,
 }
 
-impl DemoApp {
+impl App {
     pub fn new() -> Self {
-        DemoApp {
+        App {
             ball_xy: [0.0, 0.0],
             ball_color: conrod_core::color::WHITE,
             sine_frequency: 1.0,
@@ -56,13 +51,9 @@ impl DemoApp {
     }
 }
 
-// Generate the winit <-> conrod_core type conversion fns.
-conrod_winit::conversion_fns!();
-
 fn main() {
-    // Builder for window
     let builder = glutin::WindowBuilder::new()
-        .with_title("Conrod with GFX and Glutin")
+        .with_title("TSP simulator")
         .with_dimensions((WIN_W, WIN_H).into());
 
     let context = glutin::ContextBuilder::new().with_multisampling(4);
@@ -74,7 +65,8 @@ fn main() {
         conrod_gfx::ColorFormat,
         DepthFormat,
     >(builder, context, &events_loop)
-        .unwrap();
+    .unwrap();
+
     let mut encoder: gfx::Encoder<_, _> = factory.create_command_buffer().into();
 
     let mut renderer = conrod_gfx::Renderer::new(
@@ -82,7 +74,7 @@ fn main() {
         &rtv,
         context.window().get_hidpi_factor() as f64,
     )
-        .unwrap();
+    .unwrap();
 
     // Create Ui and Ids of widgets to instantiate
     let mut ui = conrod_core::UiBuilder::new([WIN_W as f64, WIN_H as f64])
@@ -91,9 +83,17 @@ fn main() {
 
     let ids = Ids::new(ui.widget_id_generator());
 
-    let mut image_map = conrod_core::image::Map::new();
+    // Load font from file
+    let assets = find_folder::Search::KidsThenParents(3, 5)
+        .for_folder("assets")
+        .unwrap();
+    let font_path = assets.join("fonts/NotoSans/NotoSans-Regular.ttf");
+    ui.fonts.insert_from_file(font_path).unwrap();
 
-    let mut app = DemoApp::new();
+    let image_map = conrod_core::image::Map::new();
+
+    // Application state
+    let mut app = App::new();
 
     'main: loop {
         // If the window is closed, this will be None for one tick, so to avoid panicking with
@@ -116,7 +116,7 @@ fn main() {
                 dims,
                 dpi_factor as f64,
                 primitives,
-                &image_map
+                &image_map,
             );
 
             renderer.draw(&mut factory, &mut encoder, &image_map);
@@ -138,10 +138,10 @@ fn main() {
                 winit::Event::WindowEvent { event, .. } => match event {
                     winit::WindowEvent::KeyboardInput {
                         input:
-                        winit::KeyboardInput {
-                            virtual_keycode: Some(winit::VirtualKeyCode::Escape),
-                            ..
-                        },
+                            winit::KeyboardInput {
+                                virtual_keycode: Some(winit::VirtualKeyCode::Escape),
+                                ..
+                            },
                         ..
                     }
                     | winit::WindowEvent::CloseRequested => should_quit = true,
@@ -160,6 +160,7 @@ fn main() {
                 _ => {}
             }
         });
+
         if should_quit {
             break 'main;
         }
@@ -172,7 +173,6 @@ fn main() {
     }
 }
 
-/// A set of reasonable stylistic defaults that works for the `gui` below.
 fn theme() -> conrod_core::Theme {
     use conrod_core::position::{Align, Direction, Padding, Position, Relative};
     conrod_core::Theme {
@@ -195,7 +195,7 @@ fn theme() -> conrod_core::Theme {
     }
 }
 
-fn gui(ui: &mut conrod_core::UiCell, ids: &Ids, app: &mut DemoApp) {
+fn gui(ui: &mut conrod_core::UiCell, ids: &Ids, app: &mut App) {
     use conrod_core::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
     use std::iter::once;
 
