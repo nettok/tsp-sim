@@ -1,0 +1,16 @@
+[package]
+name = "tsp-sim-gui"
+version = "0.1.0"
+authors = ["Ernesto Menéndez <pyalec@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+conrod_core = "0.70.0"
+conrod_gfx = "0.70.0"
+conrod_winit = "0.70"
+gfx = "0.18"
+gfx_core = "0.9"
+gfx_window_glutin = "0.31"
+glutin = "0.21"
+winit = "0.19"
+rand = "0.7"
