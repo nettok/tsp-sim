@@ -6,10 +6,15 @@ extern crate gfx;
 extern crate gfx_core;
 extern crate gfx_window_glutin;
 extern crate glutin;
+extern crate itertools;
 extern crate rand;
+extern crate ron;
+extern crate serde;
 extern crate winit;
 
 use gfx::Device;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
 const WIN_W: u32 = 800;
 const WIN_H: u32 = 600;
@@ -35,20 +40,35 @@ impl<'a> conrod_winit::WinitWindow for WindowRef<'a> {
 // Generate the winit <-> conrod_core type conversion fns.
 conrod_winit::conversion_fns!();
 
+// Application state
 pub struct App {
-    ball_xy: conrod_core::Point,
-    ball_color: conrod_core::Color,
-    sine_frequency: f32,
+    locations_ron: String,
+    locations: Vec<Location>,
+    route: Vec<String>,
 }
+
+const DEFAULT_LOCATIONS_RON: &'static str = r#"[
+  (name: "A", x: 0.0, y: 100.0),
+  (name: "B", x: 100.0, y: 0.0),
+  (name: "C", x: 100.0, y: 100.0),
+]"#;
 
 impl App {
     pub fn new() -> Self {
         App {
-            ball_xy: [0.0, 0.0],
-            ball_color: conrod_core::color::WHITE,
-            sine_frequency: 1.0,
+            locations_ron: DEFAULT_LOCATIONS_RON.to_owned(),
+            locations: ron::de::from_str(DEFAULT_LOCATIONS_RON).unwrap(),
+            route: vec!["A".to_owned(), "B".to_owned(), "C".to_owned()],
         }
     }
+}
+
+// TSP data model
+#[derive(Serialize, Deserialize, Debug)]
+struct Location {
+    name: String,
+    x: f64,
+    y: f64,
 }
 
 fn main() {
@@ -81,7 +101,7 @@ fn main() {
         .theme(theme())
         .build();
 
-    let ids = Ids::new(ui.widget_id_generator());
+    let mut ids = Ids::new(ui.widget_id_generator());
 
     // Load font from file
     let assets = find_folder::Search::KidsThenParents(3, 5)
@@ -168,7 +188,7 @@ fn main() {
         // Update widgets if any event has happened
         if ui.global_input().events().next().is_some() {
             let mut ui = ui.set_widgets();
-            gui(&mut ui, &ids, &mut app);
+            gui(&mut ui, &mut ids, &mut app);
         }
     }
 }
@@ -195,290 +215,136 @@ fn theme() -> conrod_core::Theme {
     }
 }
 
-fn gui(ui: &mut conrod_core::UiCell, ids: &Ids, app: &mut App) {
-    use conrod_core::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
-    use std::iter::once;
+fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
+    use conrod_core::{color, widget, Colorable, Labelable, Positionable, Sizeable, Widget};
 
-    const MARGIN: conrod_core::Scalar = 30.0;
-    const SHAPE_GAP: conrod_core::Scalar = 50.0;
-    const TITLE_SIZE: conrod_core::FontSize = 42;
-    const SUBTITLE_SIZE: conrod_core::FontSize = 32;
+    const MARGIN: conrod_core::Scalar = 7.0;
 
-    // `Canvas` is a widget that provides some basic functionality for laying out children widgets.
-    // By default, its size is the size of the window. We'll use this as a background for the
-    // following widgets, as well as a scrollable container for the children widgets.
-    const TITLE: &'static str = "All Widgets";
+    const TITLE: &'static str = "Hola";
     widget::Canvas::new()
         .pad(MARGIN)
-        .scroll_kids_vertically()
-        .set(ids.canvas, ui);
+        .color(color::BLACK)
+        .set(ids.main_canvas, ui);
 
-    ////////////////
-    ///// TEXT /////
-    ////////////////
-
-    // We'll demonstrate the `Text` primitive widget by using it to draw a title and an
-    // introduction to the example.
     widget::Text::new(TITLE)
-        .font_size(TITLE_SIZE)
-        .mid_top_of(ids.canvas)
+        .font_size(16)
+        .mid_top_of(ids.main_canvas)
         .set(ids.title, ui);
 
-    const INTRODUCTION: &'static str =
-        "This example aims to demonstrate all widgets that are provided by conrod.\
-         \n\nThe widget that you are currently looking at is the Text widget. The Text widget \
-         is one of several special \"primitive\" widget types which are used to construct \
-         all other widget types. These types are \"special\" in the sense that conrod knows \
-         how to render them via `conrod_core::render::Primitive`s.\
-         \n\nScroll down to see more widgets!";
-    widget::Text::new(INTRODUCTION)
-        .padded_w_of(ids.canvas, MARGIN)
-        .down(60.0)
-        .align_middle_x_of(ids.canvas)
-        .center_justify()
-        .line_spacing(5.0)
-        .set(ids.introduction, ui);
-
-    ////////////////////////////
-    ///// Lines and Shapes /////
-    ////////////////////////////
-
-    widget::Text::new("Lines and Shapes")
-        .down(70.0)
-        .align_middle_x_of(ids.canvas)
-        .font_size(SUBTITLE_SIZE)
-        .set(ids.shapes_title, ui);
-
-    // Lay out the shapes in two horizontal columns.
-    //
-    // TODO: Have conrod provide an auto-flowing, fluid-list widget that is more adaptive for these
-    // sorts of situations.
     widget::Canvas::new()
         .down(0.0)
-        .align_middle_x_of(ids.canvas)
-        .kid_area_w_of(ids.canvas)
-        .h(360.0)
-        .color(conrod_core::color::TRANSPARENT)
+        .align_middle_x_of(ids.main_canvas)
+        .kid_area_w_of(ids.main_canvas)
+        .kid_area_h_of(ids.main_canvas)
+        .color(color::TRANSPARENT)
         .pad(MARGIN)
-        .flow_down(&[
-            (ids.shapes_left_col, widget::Canvas::new()),
-            (ids.shapes_right_col, widget::Canvas::new()),
+        .flow_right(&[
+            (
+                ids.controls_canvas,
+                widget::Canvas::new()
+                    .color(color::DARK_CHARCOAL)
+                    .length(250.0),
+            ),
+            (
+                ids.locations_canvas,
+                widget::Canvas::new().color(color::DARK_GREY),
+            ),
         ])
-        .set(ids.shapes_canvas, ui);
+        .set(ids.simulation_canvas, ui);
 
-    let shapes_canvas_rect = ui.rect_of(ids.shapes_canvas).unwrap();
-    let w = shapes_canvas_rect.w();
-    let h = shapes_canvas_rect.h() * 5.0 / 6.0;
-    let radius = 10.0;
-    widget::RoundedRectangle::fill([w, h], radius)
-        .color(conrod_core::color::CHARCOAL.alpha(0.25))
-        .middle_of(ids.shapes_canvas)
-        .set(ids.rounded_rectangle, ui);
+    for new_locations_ron in widget::TextEdit::new(&app.locations_ron)
+        .mid_top_of(ids.controls_canvas)
+        .w_of(ids.controls_canvas)
+        .h(400.0)
+        .color(color::YELLOW)
+        .font_size(14)
+        .set(ids.locations_ron_textedit, ui)
+    {
+        app.locations_ron = new_locations_ron;
+        let _ = ron::de::from_str::<Vec<Location>>(&app.locations_ron)
+            .map(|locations| app.locations = locations);
 
-    let start = [-40.0, -40.0];
-    let end = [40.0, 40.0];
-    widget::Line::centred(start, end)
-        .mid_left_of(ids.shapes_left_col)
-        .set(ids.line, ui);
-
-    let left = [-40.0, -40.0];
-    let top = [0.0, 40.0];
-    let right = [40.0, -40.0];
-    let points = once(left).chain(once(top)).chain(once(right));
-    widget::PointPath::centred(points)
-        .right(SHAPE_GAP)
-        .set(ids.point_path, ui);
-
-    widget::Rectangle::fill([80.0, 80.0])
-        .right(SHAPE_GAP)
-        .set(ids.rectangle_fill, ui);
-
-    widget::Rectangle::outline([80.0, 80.0])
-        .right(SHAPE_GAP)
-        .set(ids.rectangle_outline, ui);
-
-    let bl = [-40.0, -40.0];
-    let tl = [-20.0, 40.0];
-    let tr = [20.0, 40.0];
-    let br = [40.0, -40.0];
-    let points = once(bl).chain(once(tl)).chain(once(tr)).chain(once(br));
-    widget::Polygon::centred_fill(points)
-        .mid_left_of(ids.shapes_right_col)
-        .set(ids.trapezoid, ui);
-
-    widget::Oval::fill([40.0, 80.0])
-        .right(SHAPE_GAP + 20.0)
-        .align_middle_y()
-        .set(ids.oval_fill, ui);
-
-    widget::Oval::outline([80.0, 40.0])
-        .right(SHAPE_GAP + 20.0)
-        .align_middle_y()
-        .set(ids.oval_outline, ui);
-
-    widget::Circle::fill(40.0)
-        .right(SHAPE_GAP)
-        .align_middle_y()
-        .set(ids.circle, ui);
-
-    /////////////////
-    ///// Image /////
-    /////////////////
-
-    widget::Text::new("Image")
-        .down_from(ids.shapes_canvas, MARGIN)
-        .align_middle_x_of(ids.canvas)
-        .font_size(SUBTITLE_SIZE)
-        .set(ids.image_title, ui);
-
-    /////////////////////////////////
-    ///// Button, XYPad, Toggle /////
-    /////////////////////////////////
-
-    widget::Text::new("Button, XYPad and Toggle")
-        .down_from(ids.rust_logo, 60.0)
-        .align_middle_x_of(ids.canvas)
-        .font_size(SUBTITLE_SIZE)
-        .set(ids.button_title, ui);
-
-    let ball_x_range = ui.kid_area_of(ids.canvas).unwrap().w();
-    let ball_y_range = ui.h_of(ui.window).unwrap() * 0.5;
-    let min_x = -ball_x_range / 3.0;
-    let max_x = ball_x_range / 3.0;
-    let min_y = -ball_y_range / 3.0;
-    let max_y = ball_y_range / 3.0;
-    let side = 130.0;
+        // TODO: use simulation to determine new route (this is for testing only)
+        app.route = app
+            .locations
+            .iter()
+            .map(|location| location.name.clone())
+            .collect();
+    }
 
     for _press in widget::Button::new()
-        .label("PRESS ME")
-        .mid_left_with_margin_on(ids.canvas, MARGIN)
-        .down_from(ids.button_title, 60.0)
-        .w_h(side, side)
-        .set(ids.button, ui)
-    {
-        let x = rand::random::<conrod_core::Scalar>() * (max_x - min_x) - max_x;
-        let y = rand::random::<conrod_core::Scalar>() * (max_y - min_y) - max_y;
-        app.ball_xy = [x, y];
+        .label("SIMULATE")
+        // .of(ids.controls_canvas)
+        .mid_bottom_with_margin_on(ids.controls_canvas, 10.0)
+        .w_h(130.0, 65.0)
+        .set(ids.simulate_button, ui)
+    {}
+
+    // Locations
+
+    ids.location_circles
+        .resize(app.locations.len(), &mut ui.widget_id_generator());
+
+    for (&id, location) in ids.location_circles.iter().zip(&app.locations) {
+        widget::Circle::fill(5.0)
+            .x_relative_to(ids.locations_canvas, location.x)
+            .y_relative_to(ids.locations_canvas, location.y)
+            .color(color::RED)
+            .set(id, ui);
     }
 
-    for (x, y) in widget::XYPad::new(app.ball_xy[0], min_x, max_x, app.ball_xy[1], min_y, max_y)
-        .label("BALL XY")
-        .wh_of(ids.button)
-        .align_middle_y_of(ids.button)
-        .align_middle_x_of(ids.canvas)
-        .parent(ids.canvas)
-        .set(ids.xy_pad, ui)
-    {
-        app.ball_xy = [x, y];
-    }
+    // Route
 
-    let is_white = app.ball_color == conrod_core::color::WHITE;
-    let label = if is_white { "WHITE" } else { "BLACK" };
-    for is_white in widget::Toggle::new(is_white)
-        .label(label)
-        .label_color(if is_white {
-            conrod_core::color::WHITE
-        } else {
-            conrod_core::color::LIGHT_CHARCOAL
+    let lines: Vec<(&Location, &Location)> = app
+        .route
+        .iter()
+        .tuple_windows()
+        .filter_map(|(from, to)| {
+            let mut from_location: Option<&Location> = None;
+            let mut to_location: Option<&Location> = None;
+            for location in &app.locations {
+                if location.name.eq(from) {
+                    from_location = Some(location);
+                } else if location.name.eq(to) {
+                    to_location = Some(location);
+                }
+
+                if from_location.is_some() && to_location.is_some() {
+                    break;
+                }
+            }
+            from_location.and_then(|from| to_location.map(|to| (from, to)))
         })
-        .mid_right_with_margin_on(ids.canvas, MARGIN)
-        .align_middle_y_of(ids.button)
-        .set(ids.toggle, ui)
-    {
-        app.ball_color = if is_white {
-            conrod_core::color::WHITE
-        } else {
-            conrod_core::color::BLACK
-        };
+        .collect();
+
+    ids.route_lines
+        .resize(lines.len(), &mut ui.widget_id_generator());
+
+    for (&id, (from, to)) in ids.route_lines.iter().zip(lines) {
+        let start = [from.x, from.y];
+        let end = [to.x, to.y];
+        widget::Line::centred(start, end)
+            .x_relative_to(ids.locations_canvas, (from.x + to.x) / 2.0)
+            .y_relative_to(ids.locations_canvas, (from.y + to.y) / 2.0)
+            .color(color::RED)
+            .set(id, ui);
     }
-
-    let ball_x = app.ball_xy[0];
-    let ball_y = app.ball_xy[1] - max_y - side * 0.5 - MARGIN;
-    widget::Circle::fill(20.0)
-        .color(app.ball_color)
-        .x_y_relative_to(ids.xy_pad, ball_x, ball_y)
-        .set(ids.ball, ui);
-
-    //////////////////////////////////
-    ///// NumberDialer, PlotPath /////
-    //////////////////////////////////
-
-    widget::Text::new("NumberDialer and PlotPath")
-        .down_from(ids.xy_pad, max_y - min_y + side * 0.5 + MARGIN)
-        .align_middle_x_of(ids.canvas)
-        .font_size(SUBTITLE_SIZE)
-        .set(ids.dialer_title, ui);
-
-    // Use a `NumberDialer` widget to adjust the frequency of the sine wave below.
-    let min = 0.5;
-    let max = 200.0;
-    let decimal_precision = 1;
-    for new_freq in widget::NumberDialer::new(app.sine_frequency, min, max, decimal_precision)
-        .down(60.0)
-        .align_middle_x_of(ids.canvas)
-        .w_h(160.0, 40.0)
-        .label("F R E Q")
-        .set(ids.number_dialer, ui)
-    {
-        app.sine_frequency = new_freq;
-    }
-
-    // Use the `PlotPath` widget to display a sine wave.
-    let min_x = 0.0;
-    let max_x = std::f32::consts::PI * 2.0 * app.sine_frequency;
-    let min_y = -1.0;
-    let max_y = 1.0;
-    widget::PlotPath::new(min_x, max_x, min_y, max_y, f32::sin)
-        .kid_area_w_of(ids.canvas)
-        .h(240.0)
-        .down(60.0)
-        .align_middle_x_of(ids.canvas)
-        .set(ids.plot_path, ui);
-
-    /////////////////////
-    ///// Scrollbar /////
-    /////////////////////
-
-    widget::Scrollbar::y_axis(ids.canvas)
-        .auto_hide(true)
-        .set(ids.canvas_scrollbar, ui);
 }
 
 widget_ids! {
     pub struct Ids {
-        // The scrollable canvas.
-        canvas,
-        // The title and introduction widgets.
+        main_canvas,
         title,
-        introduction,
-        // Shapes.
-        shapes_canvas,
-        rounded_rectangle,
-        shapes_left_col,
-        shapes_right_col,
-        shapes_title,
-        line,
-        point_path,
-        rectangle_fill,
-        rectangle_outline,
-        trapezoid,
-        oval_fill,
-        oval_outline,
-        circle,
-        // Image.
-        image_title,
-        rust_logo,
-        // Button, XyPad, Toggle.
-        button_title,
-        button,
-        xy_pad,
-        toggle,
-        ball,
-        // NumberDialer, PlotPath
-        dialer_title,
-        number_dialer,
-        plot_path,
-        // Scrollbar
-        canvas_scrollbar,
+        simulation_canvas,
+
+        // controls
+        controls_canvas,
+        locations_ron_textedit,
+        simulate_button,
+
+        // locations
+        locations_canvas,
+        location_circles[],
+        route_lines[],
     }
 }
