@@ -12,9 +12,12 @@ extern crate ron;
 extern crate serde;
 extern crate winit;
 
+extern crate tsp_sim_agent;
+
 use gfx::Device;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+
+use tsp_sim_agent::{Location, Simulation};
 
 const WIN_W: u32 = 800;
 const WIN_H: u32 = 600;
@@ -61,14 +64,6 @@ impl App {
             route: vec!["A".to_owned(), "B".to_owned(), "C".to_owned()],
         }
     }
-}
-
-// TSP data model
-#[derive(Serialize, Deserialize, Debug)]
-struct Location {
-    name: String,
-    x: f64,
-    y: f64,
 }
 
 fn main() {
@@ -278,7 +273,14 @@ fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
         .mid_bottom_with_margin_on(ids.controls_canvas, 10.0)
         .w_h(130.0, 65.0)
         .set(ids.simulate_button, ui)
-    {}
+    {
+        let route = Simulation::new(app.locations.clone()).run();
+        app.route = route
+            .locations
+            .iter()
+            .map(|location| location.name.clone())
+            .collect();
+    }
 
     // Locations
 
