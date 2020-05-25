@@ -67,7 +67,7 @@ impl Simulation {
         Simulation {
             locations,
             population_size: 100,
-            max_iterations: Some(1000),
+            max_iterations: Some(10000),
         }
     }
 
