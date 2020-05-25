@@ -1141,6 +1141,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsp-sim-agent"
+version = "0.1.0"
+dependencies = [
+ "rand",
+ "serde",
+]
+
+[[package]]
 name = "tsp-sim-gui"
 version = "0.1.0"
 dependencies = [
@@ -1156,6 +1164,7 @@ dependencies = [
  "rand",
  "ron",
  "serde",
+ "tsp-sim-agent",
  "winit",
 ]
 

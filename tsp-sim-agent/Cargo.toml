@@ -1,0 +1,9 @@
+[package]
+name = "tsp-sim-agent"
+version = "0.1.0"
+authors = ["Ernesto Menéndez <pyalec@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+rand = "0.7"
+serde = "1.0"

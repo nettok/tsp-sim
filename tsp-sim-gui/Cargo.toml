@@ -5,6 +5,8 @@ authors = ["Ernesto Menéndez <pyalec@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+tsp-sim-agent = { path = "../tsp-sim-agent" }
+
 conrod_core = "0.70.0"
 conrod_gfx = "0.70.0"
 conrod_winit = "0.70"
