@@ -58,6 +58,7 @@ pub struct Simulation {
     locations: Vec<Location>,
     population_size: usize,
     max_iterations: Option<usize>,
+    assume_convergence: Option<usize>,
 }
 
 impl Simulation {
@@ -67,12 +68,18 @@ impl Simulation {
         Simulation {
             locations,
             population_size: 100,
-            max_iterations: Some(10000),
+            max_iterations: Some(100_000),
+            assume_convergence: Some(25_000),
         }
     }
 
     pub fn run(&self) -> Route {
         assert!(self.population_size > Simulation::MATING_POOL_SIZE);
+        assert!(
+            self.max_iterations.is_none()
+                || self.assume_convergence.is_none()
+                || self.max_iterations.unwrap() > self.assume_convergence.unwrap()
+        );
 
         if self.locations.len() <= 2 {
             return Route::new(self.locations.clone());
@@ -82,20 +89,31 @@ impl Simulation {
 
         let mut population = self.initial_random_population(&mut rng);
         let mut mating_pool = Simulation::allocate_mating_pool(&population);
-
         Simulation::select_mating_pool(&population, &mut mating_pool, &mut rng);
 
+        let mut champion = mating_pool[0].to_owned();
+        let mut champion_iterations: usize = 0;
+
+        let max_iterations = self.max_iterations.unwrap_or(usize::MAX);
+        let assume_convergence = self.assume_convergence.unwrap_or(usize::MAX);
         let mut iteration: usize = 0;
         loop {
             iteration += 1;
+            champion_iterations += 1;
             self.next_generation(&mut population, &mating_pool, &mut rng);
             Simulation::select_mating_pool(&population, &mut mating_pool, &mut rng);
-            if iteration >= self.max_iterations.unwrap_or(usize::MAX) {
+            if champion.distance > mating_pool[0].distance {
+                champion = mating_pool[0].to_owned();
+                champion_iterations = 0;
+            }
+            if (self.max_iterations.is_some() && iteration >= max_iterations)
+                || (self.assume_convergence.is_some() && champion_iterations >= assume_convergence)
+            {
                 break;
             }
         }
 
-        mating_pool[0].to_owned()
+        champion
     }
 
     fn initial_random_population(&self, rng: &mut ThreadRng) -> Vec<Route> {
@@ -148,10 +166,18 @@ impl Simulation {
         let parent_y = &couple[1].locations;
         let length = parent_x.len();
         let mut offspring = Vec::<Location>::with_capacity(length);
-        let parent_x_dna_slice_start = rng.gen_range(0, length - 1);
-        let parent_x_dna_slice_end = parent_x_dna_slice_start + rng.gen_range(1, (length / 2) + 1);
-        let parent_x_dna_slice =
-            &parent_x[parent_x_dna_slice_start..(parent_x_dna_slice_end.min(length))];
+
+        let slice_size_adjustment = match length {
+            0..=4 => 1,
+            5..=10 => 2,
+            _ => 3,
+        };
+        let parent_x_dna_slice_start = rng.gen_range(0, length - slice_size_adjustment);
+        let parent_x_dna_slice_end = (parent_x_dna_slice_start
+            + rng.gen_range(slice_size_adjustment, (length / 2) + slice_size_adjustment))
+        .min(length);
+        let parent_x_dna_slice = &parent_x[parent_x_dna_slice_start..parent_x_dna_slice_end];
+
         let mut recombined = false;
         for y_location in parent_y {
             if !parent_x_dna_slice.contains(y_location) {
@@ -220,7 +246,7 @@ impl Simulation {
 
         // ... and randomly select a route into the last element of the mating pool to reduce the
         // probability of converging into a local maximum instead of a global maximum
-        loop {
+        for _ in 0..10 {
             let i = rng.gen_range(0, population.len());
             if !mating_pool.contains(&population[i]) {
                 mating_pool[4] = population[i].clone();
