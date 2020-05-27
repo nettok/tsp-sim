@@ -17,7 +17,10 @@ extern crate tsp_sim_agent;
 use gfx::Device;
 use itertools::Itertools;
 
-use tsp_sim_agent::{Location, Simulation};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use tsp_sim_agent::{Location, Simulation, SimulationEvent};
 
 const WIN_W: u32 = 800;
 const WIN_H: u32 = 600;
@@ -110,6 +113,11 @@ fn main() {
     // Application state
     let mut app = App::new();
 
+    // Simulation thread
+    let (command_sender, command_receiver) = mpsc::channel();
+    let (event_sender, event_receiver) = mpsc::channel();
+    thread::spawn(move || simulation_control_loop(command_receiver, event_sender));
+
     'main: loop {
         // If the window is closed, this will be None for one tick, so to avoid panicking with
         // unwrap, instead break the loop
@@ -180,10 +188,51 @@ fn main() {
             break 'main;
         }
 
+        // Check for events from the simulation thread
+        let simulation_event = event_receiver.try_recv().ok();
+
         // Update widgets if any event has happened
-        if ui.global_input().events().next().is_some() {
+        if ui.global_input().events().next().is_some() || simulation_event.is_some() {
             let mut ui = ui.set_widgets();
-            gui(&mut ui, &mut ids, &mut app);
+            gui(
+                &mut ui,
+                &mut ids,
+                &mut app,
+                &simulation_event,
+                &command_sender,
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SimulationCommand {
+    Start(Simulation),
+}
+
+fn simulation_control_loop(rx: Receiver<SimulationCommand>, tx: Sender<SimulationEvent>) {
+    let started = Arc::new(Mutex::new(false));
+    loop {
+        let command = rx.recv();
+        match command {
+            Ok(SimulationCommand::Start(simulation)) => {
+                println!("Start");
+                let mut started_locked = started.lock().unwrap();
+                if !*started_locked {
+                    println!("...starting simulation thread");
+                    *started_locked = true;
+                    let tx2 = tx.clone();
+                    let started2 = started.clone();
+                    thread::spawn(move || {
+                        println!("...started simulation thread");
+                        simulation.run(|event| tx2.send(event).unwrap());
+                        println!("...simulation thread is done");
+                        *started2.lock().unwrap() = false;
+                        println!("...started = false");
+                    });
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -210,7 +259,13 @@ fn theme() -> conrod_core::Theme {
     }
 }
 
-fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
+fn gui(
+    ui: &mut conrod_core::UiCell,
+    ids: &mut Ids,
+    app: &mut App,
+    simulation_event: &Option<SimulationEvent>,
+    command_sender: &Sender<SimulationCommand>,
+) {
     use conrod_core::{color, widget, Colorable, Labelable, Positionable, Sizeable, Widget};
 
     const MARGIN: conrod_core::Scalar = 7.0;
@@ -259,7 +314,6 @@ fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
         let _ = ron::de::from_str::<Vec<Location>>(&app.locations_ron)
             .map(|locations| app.locations = locations);
 
-        // TODO: use simulation to determine new route (this is for testing only)
         app.route = app
             .locations
             .iter()
@@ -274,12 +328,11 @@ fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
         .w_h(130.0, 65.0)
         .set(ids.simulate_button, ui)
     {
-        let route = Simulation::new(app.locations.clone()).run();
-        app.route = route
-            .locations
-            .iter()
-            .map(|location| location.name.clone())
-            .collect();
+        command_sender
+            .send(SimulationCommand::Start(Simulation::new(
+                app.locations.clone(),
+            )))
+            .unwrap();
     }
 
     // Locations
@@ -296,6 +349,17 @@ fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
     }
 
     // Route
+
+    match simulation_event {
+        Some(SimulationEvent::NewChampion(route)) => {
+            app.route = route
+                .locations
+                .iter()
+                .map(|location| location.name.clone())
+                .collect()
+        }
+        _ => {}
+    }
 
     let lines: Vec<(&Location, &Location)> = app
         .route

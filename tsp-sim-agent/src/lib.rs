@@ -54,11 +54,17 @@ fn locations_distance(locations: &[Location]) -> f64 {
 
 // -------------------------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct Simulation {
     locations: Vec<Location>,
     population_size: usize,
     max_iterations: Option<usize>,
     assume_convergence: Option<usize>,
+}
+
+#[derive(Debug)]
+pub enum SimulationEvent {
+    NewChampion(Route),
 }
 
 impl Simulation {
@@ -73,7 +79,10 @@ impl Simulation {
         }
     }
 
-    pub fn run(&self) -> Route {
+    pub fn run<F>(&self, simulation_event_callback: F) -> Route
+    where
+        F: Fn(SimulationEvent) -> (),
+    {
         assert!(self.population_size > Simulation::MATING_POOL_SIZE);
         assert!(
             self.max_iterations.is_none()
@@ -93,6 +102,7 @@ impl Simulation {
 
         let mut champion = mating_pool[0].to_owned();
         let mut champion_iterations: usize = 0;
+        simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
 
         let max_iterations = self.max_iterations.unwrap_or(usize::MAX);
         let assume_convergence = self.assume_convergence.unwrap_or(usize::MAX);
@@ -105,6 +115,7 @@ impl Simulation {
             if champion.distance > mating_pool[0].distance {
                 champion = mating_pool[0].to_owned();
                 champion_iterations = 0;
+                simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
             }
             if (self.max_iterations.is_some() && iteration >= max_iterations)
                 || (self.assume_convergence.is_some() && champion_iterations >= assume_convergence)
@@ -278,7 +289,7 @@ mod tests {
         ];
 
         let simulation = Simulation::new(locations.to_owned());
-        let solution = simulation.run();
+        let solution = simulation.run(|_| {});
         assert_eq!(solution, Route::new(locations))
     }
 }
