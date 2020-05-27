@@ -17,7 +17,11 @@ extern crate tsp_sim_agent;
 use gfx::Device;
 use itertools::Itertools;
 
-use tsp_sim_agent::{Location, Simulation};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc};
+use std::thread;
+use tsp_sim_agent::{Location, Simulation, SimulationEvent};
 
 const WIN_W: u32 = 800;
 const WIN_H: u32 = 600;
@@ -48,6 +52,8 @@ pub struct App {
     locations_ron: String,
     locations: Vec<Location>,
     route: Vec<String>,
+    route_distance: f64,
+    simulation_running: bool,
 }
 
 const DEFAULT_LOCATIONS_RON: &'static str = r#"[
@@ -62,6 +68,8 @@ impl App {
             locations_ron: DEFAULT_LOCATIONS_RON.to_owned(),
             locations: ron::de::from_str(DEFAULT_LOCATIONS_RON).unwrap(),
             route: vec!["A".to_owned(), "B".to_owned(), "C".to_owned()],
+            simulation_running: false,
+            route_distance: f64::NAN,
         }
     }
 }
@@ -109,6 +117,11 @@ fn main() {
 
     // Application state
     let mut app = App::new();
+
+    // Simulation thread
+    let (command_sender, command_receiver) = mpsc::channel();
+    let (event_sender, event_receiver) = mpsc::channel();
+    thread::spawn(move || simulation_control_loop(command_receiver, event_sender));
 
     'main: loop {
         // If the window is closed, this will be None for one tick, so to avoid panicking with
@@ -180,10 +193,52 @@ fn main() {
             break 'main;
         }
 
+        // Check for events from the simulation thread
+        let simulation_event = event_receiver.try_recv().ok();
+
         // Update widgets if any event has happened
-        if ui.global_input().events().next().is_some() {
+        if ui.global_input().events().next().is_some() || simulation_event.is_some() {
             let mut ui = ui.set_widgets();
-            gui(&mut ui, &mut ids, &mut app);
+            gui(
+                &mut ui,
+                &mut ids,
+                &mut app,
+                &simulation_event,
+                &command_sender,
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SimulationCommand {
+    Start(Simulation),
+    Stop,
+}
+
+fn simulation_control_loop(rx: Receiver<SimulationCommand>, tx: Sender<SimulationEvent>) {
+    let started = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(AtomicBool::new(false));
+    loop {
+        let command = rx.recv();
+        match command {
+            Ok(SimulationCommand::Start(simulation)) => {
+                println!("Start");
+                if !started.compare_and_swap(false, true, Ordering::Relaxed) {
+                    let tx2 = tx.clone();
+                    let started2 = started.clone();
+                    let stop2 = stop.clone();
+                    thread::spawn(move || {
+                        println!("...started simulation thread");
+                        simulation.run(&stop2, |event| tx2.send(event).unwrap());
+                        println!("...simulation thread is done");
+                        started2.store(false, Ordering::Relaxed);
+                        stop2.store(false, Ordering::Relaxed);
+                    });
+                }
+            }
+            Ok(SimulationCommand::Stop) => stop.store(true, Ordering::Relaxed),
+            _ => {}
         }
     }
 }
@@ -210,20 +265,39 @@ fn theme() -> conrod_core::Theme {
     }
 }
 
-fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
-    use conrod_core::{color, widget, Colorable, Labelable, Positionable, Sizeable, Widget};
+fn gui(
+    ui: &mut conrod_core::UiCell,
+    ids: &mut Ids,
+    app: &mut App,
+    simulation_event: &Option<SimulationEvent>,
+    command_sender: &Sender<SimulationCommand>,
+) {
+    use conrod_core::{color, widget, Colorable, Positionable, Sizeable, Widget};
 
     const MARGIN: conrod_core::Scalar = 7.0;
 
-    const TITLE: &'static str = "Hola";
+    match simulation_event {
+        Some(SimulationEvent::NewChampion(route)) => {
+            app.route = route
+                .locations
+                .iter()
+                .map(|location| location.name.clone())
+                .collect();
+            app.route_distance = route.distance;
+        }
+        Some(SimulationEvent::Started) => app.simulation_running = true,
+        Some(SimulationEvent::Finished) => app.simulation_running = false,
+        _ => {}
+    }
+
     widget::Canvas::new()
         .pad(MARGIN)
         .color(color::BLACK)
         .set(ids.main_canvas, ui);
 
-    widget::Text::new(TITLE)
+    widget::Text::new(&format!("Distance: {:.3}", app.route_distance))
         .font_size(16)
-        .mid_top_of(ids.main_canvas)
+        .top_left_with_margins_on(ids.main_canvas, 0.0, 7.0)
         .set(ids.title, ui);
 
     widget::Canvas::new()
@@ -255,11 +329,14 @@ fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
         .font_size(14)
         .set(ids.locations_ron_textedit, ui)
     {
+        if app.simulation_running {
+            break;
+        };
+
         app.locations_ron = new_locations_ron;
         let _ = ron::de::from_str::<Vec<Location>>(&app.locations_ron)
             .map(|locations| app.locations = locations);
 
-        // TODO: use simulation to determine new route (this is for testing only)
         app.route = app
             .locations
             .iter()
@@ -267,19 +344,11 @@ fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
             .collect();
     }
 
-    for _press in widget::Button::new()
-        .label("SIMULATE")
-        // .of(ids.controls_canvas)
-        .mid_bottom_with_margin_on(ids.controls_canvas, 10.0)
-        .w_h(130.0, 65.0)
-        .set(ids.simulate_button, ui)
-    {
-        let route = Simulation::new(app.locations.clone()).run();
-        app.route = route
-            .locations
-            .iter()
-            .map(|location| location.name.clone())
-            .collect();
+    // Simulation control button
+    if app.simulation_running {
+        stop_simulation_button(ui, ids, command_sender);
+    } else {
+        start_simulation_button(ui, ids, app, command_sender);
     }
 
     // Locations
@@ -330,6 +399,47 @@ fn gui(ui: &mut conrod_core::UiCell, ids: &mut Ids, app: &mut App) {
             .y_relative_to(ids.locations_canvas, (from.y + to.y) / 2.0)
             .color(color::RED)
             .set(id, ui);
+    }
+}
+
+fn start_simulation_button(
+    ui: &mut conrod_core::UiCell,
+    ids: &mut Ids,
+    app: &mut App,
+    command_sender: &Sender<SimulationCommand>,
+) {
+    use conrod_core::{widget, Labelable, Positionable, Sizeable, Widget};
+    for _press in widget::Button::new()
+        .label("START")
+        .mid_bottom_with_margin_on(ids.controls_canvas, 10.0)
+        .w_h(130.0, 65.0)
+        .set(ids.simulate_button, ui)
+    {
+        command_sender
+            .send(SimulationCommand::Start(Simulation::new(
+                app.locations.clone(),
+            )))
+            .unwrap();
+    }
+}
+
+fn stop_simulation_button(
+    ui: &mut conrod_core::UiCell,
+    ids: &mut Ids,
+    command_sender: &Sender<SimulationCommand>,
+) {
+    use conrod_core::{color, widget, Colorable, Labelable, Positionable, Sizeable, Widget};
+    for _press in widget::Button::new()
+        .label("STOP")
+        .color(color::RED)
+        .hover_color(color::DARK_RED)
+        .press_color(color::LIGHT_RED)
+        .label_color(color::DARK_YELLOW)
+        .mid_bottom_with_margin_on(ids.controls_canvas, 10.0)
+        .w_h(130.0, 65.0)
+        .set(ids.simulate_button, ui)
+    {
+        command_sender.send(SimulationCommand::Stop).unwrap();
     }
 }
 

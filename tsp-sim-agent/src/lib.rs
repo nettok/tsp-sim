@@ -3,6 +3,8 @@ extern crate serde;
 
 use rand::prelude::{thread_rng, Rng, SliceRandom, ThreadRng};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct Location {
@@ -54,11 +56,19 @@ fn locations_distance(locations: &[Location]) -> f64 {
 
 // -------------------------------------------------------------------------------------------------
 
+#[derive(Debug)]
 pub struct Simulation {
     locations: Vec<Location>,
     population_size: usize,
     max_iterations: Option<usize>,
     assume_convergence: Option<usize>,
+}
+
+#[derive(Debug)]
+pub enum SimulationEvent {
+    Started,
+    NewChampion(Route),
+    Finished,
 }
 
 impl Simulation {
@@ -73,7 +83,10 @@ impl Simulation {
         }
     }
 
-    pub fn run(&self) -> Route {
+    pub fn run<F>(&self, stop: &Arc<AtomicBool>, simulation_event_callback: F) -> Route
+    where
+        F: Fn(SimulationEvent) -> (),
+    {
         assert!(self.population_size > Simulation::MATING_POOL_SIZE);
         assert!(
             self.max_iterations.is_none()
@@ -81,8 +94,12 @@ impl Simulation {
                 || self.max_iterations.unwrap() > self.assume_convergence.unwrap()
         );
 
+        simulation_event_callback(SimulationEvent::Started);
+
         if self.locations.len() <= 2 {
-            return Route::new(self.locations.clone());
+            let champion = Route::new(self.locations.clone());
+            simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
+            return champion;
         }
 
         let mut rng = thread_rng();
@@ -93,6 +110,7 @@ impl Simulation {
 
         let mut champion = mating_pool[0].to_owned();
         let mut champion_iterations: usize = 0;
+        simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
 
         let max_iterations = self.max_iterations.unwrap_or(usize::MAX);
         let assume_convergence = self.assume_convergence.unwrap_or(usize::MAX);
@@ -105,14 +123,17 @@ impl Simulation {
             if champion.distance > mating_pool[0].distance {
                 champion = mating_pool[0].to_owned();
                 champion_iterations = 0;
+                simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
             }
-            if (self.max_iterations.is_some() && iteration >= max_iterations)
+            if stop.load(Ordering::Relaxed)
+                || (self.max_iterations.is_some() && iteration >= max_iterations)
                 || (self.assume_convergence.is_some() && champion_iterations >= assume_convergence)
             {
                 break;
             }
         }
 
+        simulation_event_callback(SimulationEvent::Finished);
         champion
     }
 
@@ -170,7 +191,13 @@ impl Simulation {
         let slice_size_adjustment = match length {
             0..=4 => 1,
             5..=10 => 2,
-            _ => 3,
+            _ => {
+                if rng.gen_bool(0.667) {
+                    3
+                } else {
+                    2
+                }
+            }
         };
         let parent_x_dna_slice_start = rng.gen_range(0, length - slice_size_adjustment);
         let parent_x_dna_slice_end = (parent_x_dna_slice_start
@@ -182,7 +209,10 @@ impl Simulation {
         for y_location in parent_y {
             if !parent_x_dna_slice.contains(y_location) {
                 offspring.push(y_location.clone());
-            } else if !recombined && y_location == &parent_x_dna_slice[0] {
+            } else if !recombined && (rng.gen_bool(0.10) || y_location == &parent_x_dna_slice[0]) {
+                // recombination has a 10% chance of occurring early instead of trying to attach the
+                // of the DNA slice with the same gene than the other parent, to prevent a fast
+                // convergence to a local maximum and search for other possible solutions
                 for x_dna_slice_location in parent_x_dna_slice {
                     offspring.push(x_dna_slice_location.clone())
                 }
@@ -193,16 +223,16 @@ impl Simulation {
     }
 
     fn mutate(&self, population: &mut Vec<Route>, mating_pool: &[Route], rng: &mut ThreadRng) {
-        // We will mutate any route that would have little chance of being selected as part of the
-        // next mating pool to increase the chance of getting an unexpected mutant champion.
+        //There is a chance to mutate any route that would have little chance of being selected as
+        // part of the next mating pool to increase the chance of getting an unexpected mutant champion.
         //
-        // In this case mating_pool[mating_pool.len() - 2] because the last element is not a
+        // In this case mating_pool[mating_pool.len() - 3] because the last element is not a
         // champion, but a randomly selected route.
-        let mutation_threshold_distance = &mating_pool[mating_pool.len() - 2].distance;
+        let mutation_threshold_distance = &mating_pool[mating_pool.len() - 3].distance;
         let route_length = self.locations.len();
 
         for route in population {
-            if route.distance > *mutation_threshold_distance {
+            if route.distance > *mutation_threshold_distance && rng.gen_bool(0.667) {
                 let i1 = rng.gen_range(0, route_length);
                 let i2 = rng.gen_range(0, route_length);
                 route.locations.swap(i1, i2);
@@ -246,11 +276,28 @@ impl Simulation {
 
         // ... and randomly select a route into the last element of the mating pool to reduce the
         // probability of converging into a local maximum instead of a global maximum
-        for _ in 0..10 {
+        for _ in 0..5 {
             let i = rng.gen_range(0, population.len());
             if !mating_pool.contains(&population[i]) {
                 mating_pool[4] = population[i].clone();
                 break;
+            }
+        }
+
+        // if mating pool still has low diversity, then try to add an extra random element
+        if mating_pool[0].distance == mating_pool[1].distance
+            && mating_pool[1].distance == mating_pool[2].distance
+            && mating_pool[2].distance == mating_pool[3].distance
+            && mating_pool[0].locations == mating_pool[1].locations
+            && mating_pool[1].locations == mating_pool[2].locations
+            && mating_pool[2].locations == mating_pool[3].locations
+        {
+            for _ in 0..3 {
+                let i = rng.gen_range(0, population.len());
+                if !mating_pool.contains(&population[i]) {
+                    mating_pool[3] = population[i].clone();
+                    break;
+                }
             }
         }
     }
@@ -278,7 +325,7 @@ mod tests {
         ];
 
         let simulation = Simulation::new(locations.to_owned());
-        let solution = simulation.run();
+        let solution = simulation.run(&Arc::new(AtomicBool::default()), |_| {});
         assert_eq!(solution, Route::new(locations))
     }
 }
