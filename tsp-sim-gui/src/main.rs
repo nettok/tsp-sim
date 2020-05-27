@@ -52,6 +52,7 @@ pub struct App {
     locations_ron: String,
     locations: Vec<Location>,
     route: Vec<String>,
+    route_distance: f64,
     simulation_running: bool,
 }
 
@@ -68,6 +69,7 @@ impl App {
             locations: ron::de::from_str(DEFAULT_LOCATIONS_RON).unwrap(),
             route: vec!["A".to_owned(), "B".to_owned(), "C".to_owned()],
             simulation_running: false,
+            route_distance: f64::NAN,
         }
     }
 }
@@ -280,22 +282,22 @@ fn gui(
                 .locations
                 .iter()
                 .map(|location| location.name.clone())
-                .collect()
+                .collect();
+            app.route_distance = route.distance;
         }
         Some(SimulationEvent::Started) => app.simulation_running = true,
         Some(SimulationEvent::Finished) => app.simulation_running = false,
         _ => {}
     }
 
-    const TITLE: &'static str = "Hola";
     widget::Canvas::new()
         .pad(MARGIN)
         .color(color::BLACK)
         .set(ids.main_canvas, ui);
 
-    widget::Text::new(TITLE)
+    widget::Text::new(&format!("Distance: {:.3}", app.route_distance))
         .font_size(16)
-        .mid_top_of(ids.main_canvas)
+        .top_left_with_margins_on(ids.main_canvas, 0.0, 7.0)
         .set(ids.title, ui);
 
     widget::Canvas::new()
