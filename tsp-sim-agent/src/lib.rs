@@ -191,7 +191,13 @@ impl Simulation {
         let slice_size_adjustment = match length {
             0..=4 => 1,
             5..=10 => 2,
-            _ => 3,
+            _ => {
+                if rng.gen_bool(0.667) {
+                    3
+                } else {
+                    2
+                }
+            }
         };
         let parent_x_dna_slice_start = rng.gen_range(0, length - slice_size_adjustment);
         let parent_x_dna_slice_end = (parent_x_dna_slice_start
@@ -203,7 +209,10 @@ impl Simulation {
         for y_location in parent_y {
             if !parent_x_dna_slice.contains(y_location) {
                 offspring.push(y_location.clone());
-            } else if !recombined && y_location == &parent_x_dna_slice[0] {
+            } else if !recombined && (rng.gen_bool(0.10) || y_location == &parent_x_dna_slice[0]) {
+                // recombination has a 10% chance of occurring early instead of trying to attach the
+                // of the DNA slice with the same gene than the other parent, to prevent a fast
+                // convergence to a local maximum and search for other possible solutions
                 for x_dna_slice_location in parent_x_dna_slice {
                     offspring.push(x_dna_slice_location.clone())
                 }
@@ -214,16 +223,16 @@ impl Simulation {
     }
 
     fn mutate(&self, population: &mut Vec<Route>, mating_pool: &[Route], rng: &mut ThreadRng) {
-        // We will mutate any route that would have little chance of being selected as part of the
-        // next mating pool to increase the chance of getting an unexpected mutant champion.
+        //There is a chance to mutate any route that would have little chance of being selected as
+        // part of the next mating pool to increase the chance of getting an unexpected mutant champion.
         //
-        // In this case mating_pool[mating_pool.len() - 2] because the last element is not a
+        // In this case mating_pool[mating_pool.len() - 3] because the last element is not a
         // champion, but a randomly selected route.
-        let mutation_threshold_distance = &mating_pool[mating_pool.len() - 2].distance;
+        let mutation_threshold_distance = &mating_pool[mating_pool.len() - 3].distance;
         let route_length = self.locations.len();
 
         for route in population {
-            if route.distance > *mutation_threshold_distance {
+            if route.distance > *mutation_threshold_distance && rng.gen_bool(0.667) {
                 let i1 = rng.gen_range(0, route_length);
                 let i2 = rng.gen_range(0, route_length);
                 route.locations.swap(i1, i2);
@@ -267,11 +276,28 @@ impl Simulation {
 
         // ... and randomly select a route into the last element of the mating pool to reduce the
         // probability of converging into a local maximum instead of a global maximum
-        for _ in 0..10 {
+        for _ in 0..5 {
             let i = rng.gen_range(0, population.len());
             if !mating_pool.contains(&population[i]) {
                 mating_pool[4] = population[i].clone();
                 break;
+            }
+        }
+
+        // if mating pool still has low diversity, then try to add an extra random element
+        if mating_pool[0].distance == mating_pool[1].distance
+            && mating_pool[1].distance == mating_pool[2].distance
+            && mating_pool[2].distance == mating_pool[3].distance
+            && mating_pool[0].locations == mating_pool[1].locations
+            && mating_pool[1].locations == mating_pool[2].locations
+            && mating_pool[2].locations == mating_pool[3].locations
+        {
+            for _ in 0..3 {
+                let i = rng.gen_range(0, population.len());
+                if !mating_pool.contains(&population[i]) {
+                    mating_pool[3] = population[i].clone();
+                    break;
+                }
             }
         }
     }
