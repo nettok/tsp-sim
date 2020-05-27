@@ -3,6 +3,8 @@ extern crate serde;
 
 use rand::prelude::{thread_rng, Rng, SliceRandom, ThreadRng};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct Location {
@@ -64,7 +66,9 @@ pub struct Simulation {
 
 #[derive(Debug)]
 pub enum SimulationEvent {
+    Started,
     NewChampion(Route),
+    Finished,
 }
 
 impl Simulation {
@@ -79,7 +83,7 @@ impl Simulation {
         }
     }
 
-    pub fn run<F>(&self, simulation_event_callback: F) -> Route
+    pub fn run<F>(&self, stop: &Arc<AtomicBool>, simulation_event_callback: F) -> Route
     where
         F: Fn(SimulationEvent) -> (),
     {
@@ -90,8 +94,12 @@ impl Simulation {
                 || self.max_iterations.unwrap() > self.assume_convergence.unwrap()
         );
 
+        simulation_event_callback(SimulationEvent::Started);
+
         if self.locations.len() <= 2 {
-            return Route::new(self.locations.clone());
+            let champion = Route::new(self.locations.clone());
+            simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
+            return champion;
         }
 
         let mut rng = thread_rng();
@@ -117,13 +125,15 @@ impl Simulation {
                 champion_iterations = 0;
                 simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
             }
-            if (self.max_iterations.is_some() && iteration >= max_iterations)
+            if stop.load(Ordering::Relaxed)
+                || (self.max_iterations.is_some() && iteration >= max_iterations)
                 || (self.assume_convergence.is_some() && champion_iterations >= assume_convergence)
             {
                 break;
             }
         }
 
+        simulation_event_callback(SimulationEvent::Finished);
         champion
     }
 
@@ -289,7 +299,7 @@ mod tests {
         ];
 
         let simulation = Simulation::new(locations.to_owned());
-        let solution = simulation.run(|_| {});
+        let solution = simulation.run(&Arc::new(AtomicBool::default()), |_| {});
         assert_eq!(solution, Route::new(locations))
     }
 }
