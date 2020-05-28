@@ -72,12 +72,12 @@ pub enum SimulationEvent {
 }
 
 impl Simulation {
-    const MATING_POOL_SIZE: usize = 5;
+    const MATING_POOL_SIZE: usize = 6;
 
     pub fn new(locations: Vec<Location>) -> Simulation {
         Simulation {
             locations,
-            population_size: 100,
+            population_size: 200,
             max_iterations: Some(100_000),
             assume_convergence: Some(25_000),
         }
@@ -190,12 +190,20 @@ impl Simulation {
 
         let slice_size_adjustment = match length {
             0..=4 => 1,
-            5..=10 => 2,
+            5..=10 => {
+                if rng.gen_bool(0.667) {
+                    2
+                } else {
+                    1
+                }
+            }
             _ => {
                 if rng.gen_bool(0.667) {
                     3
-                } else {
+                } else if rng.gen_bool(0.667) {
                     2
+                } else {
+                    1
                 }
             }
         };
@@ -209,9 +217,9 @@ impl Simulation {
         for y_location in parent_y {
             if !parent_x_dna_slice.contains(y_location) {
                 offspring.push(y_location.clone());
-            } else if !recombined && (rng.gen_bool(0.10) || y_location == &parent_x_dna_slice[0]) {
-                // recombination has a 10% chance of occurring early instead of trying to attach the
-                // of the DNA slice with the same gene than the other parent, to prevent a fast
+            } else if !recombined && (rng.gen_bool(0.15) || y_location == &parent_x_dna_slice[0]) {
+                // recombination has a small chance of occurring early instead of trying to attach
+                // the the DNA slice with the same gene than the other parent, to prevent a fast
                 // convergence to a local maximum and search for other possible solutions
                 for x_dna_slice_location in parent_x_dna_slice {
                     offspring.push(x_dna_slice_location.clone())
@@ -223,21 +231,37 @@ impl Simulation {
     }
 
     fn mutate(&self, population: &mut Vec<Route>, mating_pool: &[Route], rng: &mut ThreadRng) {
-        //There is a chance to mutate any route that would have little chance of being selected as
+        // There is a chance to mutate any route that would have little chance of being selected as
         // part of the next mating pool to increase the chance of getting an unexpected mutant champion.
         //
-        // In this case mating_pool[mating_pool.len() - 3] because the last element is not a
+        // In this case mating_pool[mating_pool.len() - 2] because the last element is not a
         // champion, but a randomly selected route.
-        let mutation_threshold_distance = &mating_pool[mating_pool.len() - 3].distance;
+        let mutation_threshold_distance = &mating_pool[mating_pool.len() - 2].distance;
         let route_length = self.locations.len();
 
+        let small_mutation_swaps = (route_length / 6).max(1);
+        let big_mutation_swaps = (route_length / 2).max(2);
+
         for route in population {
-            if route.distance > *mutation_threshold_distance && rng.gen_bool(0.667) {
-                let i1 = rng.gen_range(0, route_length);
-                let i2 = rng.gen_range(0, route_length);
-                route.locations.swap(i1, i2);
-                route.distance = locations_distance(&route.locations);
+            if route.distance > *mutation_threshold_distance {
+                if rng.gen_bool(0.70) {
+                    // high-chance of small mutation
+                    Simulation::swap_genes(small_mutation_swaps, route, route_length, rng);
+                    route.distance = locations_distance(&route.locations);
+                } else {
+                    // smaller chance of bigger mutation
+                    Simulation::swap_genes(big_mutation_swaps, route, route_length, rng);
+                    route.distance = locations_distance(&route.locations);
+                }
             }
+        }
+    }
+
+    fn swap_genes(n: usize, route: &mut Route, route_length: usize, rng: &mut ThreadRng) {
+        for _ in 0..n {
+            let i1 = rng.gen_range(0, route_length);
+            let i2 = rng.gen_range(0, route_length);
+            route.locations.swap(i1, i2);
         }
     }
 
@@ -247,8 +271,9 @@ impl Simulation {
         let mate2 = population[2].clone();
         let mate3 = population[3].clone();
         let mate4 = population[4].clone();
+        let mate5 = population[5].clone();
 
-        let mating_pool = vec![mate0, mate1, mate2, mate3, mate4];
+        let mating_pool = vec![mate0, mate1, mate2, mate3, mate4, mate5];
         debug_assert_eq!(mating_pool.len(), Simulation::MATING_POOL_SIZE);
         mating_pool
     }
@@ -257,20 +282,20 @@ impl Simulation {
         debug_assert_eq!(mating_pool.len(), Simulation::MATING_POOL_SIZE);
 
         for route in population {
-            if route.distance < mating_pool[0].distance {
-                mating_pool.swap(3, 2);
-                mating_pool.swap(2, 1);
-                mating_pool.swap(1, 0);
+            if route.distance < mating_pool[0].distance && route != &mating_pool[0] {
+                mating_pool[0..5].rotate_right(1);
                 mating_pool[0] = route.clone();
-            } else if route.distance < mating_pool[1].distance {
-                mating_pool.swap(3, 2);
-                mating_pool.swap(2, 1);
+            } else if route.distance < mating_pool[1].distance && route != &mating_pool[1] {
+                mating_pool[1..5].rotate_right(1);
                 mating_pool[1] = route.clone();
-            } else if route.distance < mating_pool[2].distance {
-                mating_pool.swap(3, 2);
+            } else if route.distance < mating_pool[2].distance && route != &mating_pool[2] {
+                mating_pool[2..5].rotate_right(1);
                 mating_pool[2] = route.clone();
-            } else if route.distance < mating_pool[3].distance {
+            } else if route.distance < mating_pool[3].distance && route != &mating_pool[3] {
+                mating_pool[3..5].rotate_right(1);
                 mating_pool[3] = route.clone();
+            } else if route.distance < mating_pool[4].distance && route != &mating_pool[4] {
+                mating_pool[4] = route.clone();
             }
         }
 
@@ -279,25 +304,8 @@ impl Simulation {
         for _ in 0..5 {
             let i = rng.gen_range(0, population.len());
             if !mating_pool.contains(&population[i]) {
-                mating_pool[4] = population[i].clone();
+                mating_pool[5] = population[i].clone();
                 break;
-            }
-        }
-
-        // if mating pool still has low diversity, then try to add an extra random element
-        if mating_pool[0].distance == mating_pool[1].distance
-            && mating_pool[1].distance == mating_pool[2].distance
-            && mating_pool[2].distance == mating_pool[3].distance
-            && mating_pool[0].locations == mating_pool[1].locations
-            && mating_pool[1].locations == mating_pool[2].locations
-            && mating_pool[2].locations == mating_pool[3].locations
-        {
-            for _ in 0..3 {
-                let i = rng.gen_range(0, population.len());
-                if !mating_pool.contains(&population[i]) {
-                    mating_pool[3] = population[i].clone();
-                    break;
-                }
             }
         }
     }
