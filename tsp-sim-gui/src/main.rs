@@ -56,18 +56,13 @@ pub struct App {
     simulation_running: bool,
 }
 
-const DEFAULT_LOCATIONS_RON: &'static str = r#"[
-  (name: "A", x: 0.0, y: 100.0),
-  (name: "B", x: 100.0, y: 0.0),
-  (name: "C", x: 100.0, y: 100.0),
-]"#;
-
 impl App {
     pub fn new() -> Self {
+        let locations: Vec<Location> = ron::de::from_str(EXAMPLE1_RON).unwrap();
         App {
-            locations_ron: DEFAULT_LOCATIONS_RON.to_owned(),
-            locations: ron::de::from_str(DEFAULT_LOCATIONS_RON).unwrap(),
-            route: vec!["A".to_owned(), "B".to_owned(), "C".to_owned()],
+            locations_ron: EXAMPLE1_RON.to_owned(),
+            route: locations_names(&locations),
+            locations,
             simulation_running: false,
             route_distance: f64::NAN,
         }
@@ -265,6 +260,63 @@ fn theme() -> conrod_core::Theme {
     }
 }
 
+const EXAMPLE1_RON: &'static str = r#"[
+  (name: "A", x: 0.0, y: 100.0),
+  (name: "B", x: 100.0, y: 0.0),
+  (name: "C", x: 100.0, y: 100.0),
+  (name: "D", x: 200.0, y: 200.0),
+  (name: "E", x: -200.0, y: -100.0),
+  (name: "F", x: 0.0, y: 200.0),
+  (name: "G", x: 150.0, y: 250.0),
+  (name: "H", x: 10.0, y: -200.0),
+  (name: "I", x: -150.0, y: 250.0),
+  (name: "J", x: 200.0, y: -200.0),
+  (name: "K", x: -200.0, y: 100.0),
+  (name: "L", x: -100.0, y: 100.0),
+  (name: "M", x: 170.0, y: -50.0),
+  (name: "N", x: -120.0, y: -210.0),
+  (name: "O", x: 50.0, y: -50.0),
+  (name: "P", x: -50.00, y: -50.0),
+]"#;
+
+const EXAMPLE2_RON: &'static str = r#"[
+  (name: "A", x: 200.0, y: 200.0),
+  (name: "B", x: -200.0, y: -200.0),
+  (name: "C", x: -200.0, y:  200.0),
+  (name: "D", x: 200.0, y: -200.0),
+  (name: "E", x: 200.0, y: 0.0),
+  (name: "F", x: 0.0, y: 200.0),
+  (name: "G", x: 0.0, y: -200.0),
+  (name: "H", x: -200.0, y: 0.0),
+  (name: "I", x: 0.0, y: 0.0),
+]"#;
+
+const EXAMPLE3_RON: &'static str = r#"[
+  (name: "A", x: 200.0, y: 200.0),
+  (name: "B", x: -200.0, y: -200.0),
+  (name: "C", x: -200.0, y:  200.0),
+  (name: "D", x: 200.0, y: -200.0),
+  (name: "E", x: 200.0, y: 0.0),
+  (name: "F", x: 0.0, y: 200.0),
+  (name: "G", x: 0.0, y: -200.0),
+  (name: "H", x: -200.0, y: 0.0),
+  (name: "I", x: -200.0, y: 100.0),
+  (name: "J", x: -100.0, y: 200.0),
+  (name: "K", x: 100.0, y: 200.0),
+  (name: "L", x: 200.0, y: 100.0),
+  (name: "M", x: 200.0, y: -100.0),
+  (name: "N", x: 100.0, y: -200.0),
+  (name: "O", x: -100.0, y: -200.0),
+  (name: "P", x: -200.0, y: -100.0),
+]"#;
+
+fn locations_names(locations: &[Location]) -> Vec<String> {
+    locations
+        .iter()
+        .map(|location| location.name.clone())
+        .collect()
+}
+
 fn gui(
     ui: &mut conrod_core::UiCell,
     ids: &mut Ids,
@@ -272,17 +324,15 @@ fn gui(
     simulation_event: &Option<SimulationEvent>,
     command_sender: &Sender<SimulationCommand>,
 ) {
-    use conrod_core::{color, widget, Colorable, Positionable, Sizeable, Widget};
+    use conrod_core::{
+        color, position, widget, Colorable, Labelable, Positionable, Sizeable, Widget,
+    };
 
     const MARGIN: conrod_core::Scalar = 7.0;
 
     match simulation_event {
         Some(SimulationEvent::NewChampion(route)) => {
-            app.route = route
-                .locations
-                .iter()
-                .map(|location| location.name.clone())
-                .collect();
+            app.route = locations_names(&route.locations);
             app.route_distance = route.distance;
         }
         Some(SimulationEvent::Started) => app.simulation_running = true,
@@ -297,8 +347,74 @@ fn gui(
 
     widget::Text::new(&format!("Distance: {:.3}", app.route_distance))
         .font_size(16)
-        .top_left_with_margins_on(ids.main_canvas, 0.0, 7.0)
-        .set(ids.title, ui);
+        .top_left_with_margins_on(ids.main_canvas, 0.0, MARGIN)
+        .set(ids.distance_label, ui);
+
+    // Example buttons
+
+    for _press in widget::Button::new()
+        .label("3")
+        .label_font_size(14)
+        .label_y(position::Relative::Scalar(2.0))
+        .color(color::RED)
+        .hover_color(color::DARK_RED)
+        .press_color(color::LIGHT_RED)
+        .label_color(color::DARK_YELLOW)
+        .top_right_with_margins_on(ids.main_canvas, 0.0, MARGIN)
+        .w_h(30.0, 20.0)
+        .set(ids.example_3_button, ui)
+    {
+        if app.simulation_running {
+            break;
+        };
+
+        set_locations_input(app, EXAMPLE3_RON.to_string());
+    }
+
+    for _press in widget::Button::new()
+        .label("2")
+        .label_font_size(14)
+        .label_y(position::Relative::Scalar(2.0))
+        .color(color::RED)
+        .hover_color(color::DARK_RED)
+        .press_color(color::LIGHT_RED)
+        .label_color(color::DARK_YELLOW)
+        .left_from(ids.example_3_button, 5.0)
+        .w_h(30.0, 20.0)
+        .set(ids.example_2_button, ui)
+    {
+        if app.simulation_running {
+            break;
+        };
+
+        set_locations_input(app, EXAMPLE2_RON.to_string());
+    }
+
+    for _press in widget::Button::new()
+        .label("1")
+        .label_font_size(14)
+        .label_y(position::Relative::Scalar(2.0))
+        .color(color::RED)
+        .hover_color(color::DARK_RED)
+        .press_color(color::LIGHT_RED)
+        .label_color(color::DARK_YELLOW)
+        .left_from(ids.example_2_button, 5.0)
+        .w_h(30.0, 20.0)
+        .set(ids.example_1_button, ui)
+    {
+        if app.simulation_running {
+            break;
+        };
+
+        set_locations_input(app, EXAMPLE1_RON.to_string());
+    }
+
+    widget::Text::new("Examples:")
+        .font_size(16)
+        .left_from(ids.example_2_button, 40.0)
+        .set(ids.examples_label, ui);
+
+    // Controls and locations areas
 
     widget::Canvas::new()
         .down(0.0)
@@ -333,17 +449,7 @@ fn gui(
             break;
         };
 
-        app.locations_ron = new_locations_ron;
-        let _ = ron::de::from_str::<Vec<Location>>(&app.locations_ron)
-            .map(|locations| app.locations = locations);
-
-        app.route = app
-            .locations
-            .iter()
-            .map(|location| location.name.clone())
-            .collect();
-
-        app.route_distance = f64::NAN;
+        set_locations_input(app, new_locations_ron);
     }
 
     // Simulation control button
@@ -404,6 +510,15 @@ fn gui(
     }
 }
 
+fn set_locations_input(app: &mut App, new_locations_ron: String) {
+    app.locations_ron = new_locations_ron;
+    let _ = ron::de::from_str::<Vec<Location>>(&app.locations_ron)
+        .map(|locations| app.locations = locations);
+
+    app.route = locations_names(&app.locations);
+    app.route_distance = f64::NAN;
+}
+
 fn start_simulation_button(
     ui: &mut conrod_core::UiCell,
     ids: &mut Ids,
@@ -448,7 +563,11 @@ fn stop_simulation_button(
 widget_ids! {
     pub struct Ids {
         main_canvas,
-        title,
+        distance_label,
+        examples_label,
+        example_1_button,
+        example_2_button,
+        example_3_button,
         simulation_canvas,
 
         // controls
