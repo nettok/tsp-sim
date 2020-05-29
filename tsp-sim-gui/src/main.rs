@@ -342,6 +342,8 @@ fn gui(
             .iter()
             .map(|location| location.name.clone())
             .collect();
+
+        app.route_distance = f64::NAN;
     }
 
     // Simulation control button
