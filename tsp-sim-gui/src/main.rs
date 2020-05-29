@@ -17,6 +17,7 @@ extern crate tsp_sim_agent;
 use gfx::Device;
 use itertools::Itertools;
 
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
@@ -54,6 +55,7 @@ pub struct App {
     route: Vec<String>,
     route_distance: f64,
     simulation_running: bool,
+    population: usize,
 }
 
 impl App {
@@ -65,6 +67,7 @@ impl App {
             locations,
             simulation_running: false,
             route_distance: f64::NAN,
+            population: 200,
         }
     }
 }
@@ -218,7 +221,7 @@ fn simulation_control_loop(rx: Receiver<SimulationCommand>, tx: Sender<Simulatio
         let command = rx.recv();
         match command {
             Ok(SimulationCommand::Start(simulation)) => {
-                println!("Start");
+                println!("Start: {:#?}", simulation);
                 if !started.compare_and_swap(false, true, Ordering::Relaxed) {
                     let tx2 = tx.clone();
                     let started2 = started.clone();
@@ -452,6 +455,31 @@ fn gui(
         set_locations_input(app, new_locations_ron);
     }
 
+    // Population
+    widget::Text::new(" Population")
+        .font_size(16)
+        .down_from(ids.locations_ron_textedit, 10.0)
+        .set(ids.population_label, ui);
+
+    for new_population_event in widget::TextBox::new(&format!("{}", app.population))
+        .font_size(16)
+        .w(150.0)
+        .h(20.0)
+        .right_from(ids.population_label, 4.0)
+        .set(ids.population_textbox, ui)
+    {
+        if app.simulation_running {
+            break;
+        };
+
+        match new_population_event {
+            widget::text_box::Event::Update(new_population) => {
+                let _ = usize::from_str(&new_population).map(|x| app.population = x);
+            }
+            _ => {}
+        }
+    }
+
     // Simulation control button
     if app.simulation_running {
         stop_simulation_button(ui, ids, command_sender);
@@ -533,9 +561,10 @@ fn start_simulation_button(
         .set(ids.simulate_button, ui)
     {
         command_sender
-            .send(SimulationCommand::Start(Simulation::new(
-                app.locations.clone(),
-            )))
+            .send(SimulationCommand::Start(Simulation {
+                population_size: app.population,
+                ..Simulation::new(app.locations.clone())
+            }))
             .unwrap();
     }
 }
@@ -573,6 +602,8 @@ widget_ids! {
         // controls
         controls_canvas,
         locations_ron_textedit,
+        population_label,
+        population_textbox,
         simulate_button,
 
         // locations
