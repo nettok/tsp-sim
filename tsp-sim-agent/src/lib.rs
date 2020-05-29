@@ -58,10 +58,10 @@ fn locations_distance(locations: &[Location]) -> f64 {
 
 #[derive(Debug)]
 pub struct Simulation {
-    locations: Vec<Location>,
-    population_size: usize,
-    max_iterations: Option<usize>,
-    assume_convergence: Option<usize>,
+    pub locations: Vec<Location>,
+    pub population_size: usize,
+    pub max_iterations: Option<usize>,
+    pub assume_convergence: Option<usize>,
 }
 
 #[derive(Debug)]
