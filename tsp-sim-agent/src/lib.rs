@@ -67,7 +67,8 @@ pub struct Simulation {
 #[derive(Debug)]
 pub enum SimulationEvent {
     Started,
-    NewChampion(Route),
+    Iteration(usize),
+    NewChampion(Route, usize),
     Finished,
 }
 
@@ -98,7 +99,7 @@ impl Simulation {
 
         if self.locations.len() <= 2 {
             let champion = Route::new(self.locations.clone());
-            simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
+            simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned(), 0));
             return champion;
         }
 
@@ -110,7 +111,7 @@ impl Simulation {
 
         let mut champion = mating_pool[0].to_owned();
         let mut champion_iterations: usize = 0;
-        simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
+        simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned(), 0));
 
         let max_iterations = self.max_iterations.unwrap_or(usize::MAX);
         let assume_convergence = self.assume_convergence.unwrap_or(usize::MAX);
@@ -123,7 +124,13 @@ impl Simulation {
             if champion.distance > mating_pool[0].distance {
                 champion = mating_pool[0].to_owned();
                 champion_iterations = 0;
-                simulation_event_callback(SimulationEvent::NewChampion(champion.to_owned()));
+                simulation_event_callback(SimulationEvent::NewChampion(
+                    champion.to_owned(),
+                    iteration,
+                ));
+            }
+            if iteration % 1000 == 0 {
+                simulation_event_callback(SimulationEvent::Iteration(iteration));
             }
             if stop.load(Ordering::Relaxed)
                 || (self.max_iterations.is_some() && iteration >= max_iterations)

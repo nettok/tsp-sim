@@ -54,8 +54,10 @@ pub struct App {
     locations: Vec<Location>,
     route: Vec<String>,
     route_distance: f64,
+    route_iteration: usize,
     simulation_running: bool,
     population: usize,
+    total_iterations: usize,
 }
 
 impl App {
@@ -65,9 +67,11 @@ impl App {
             locations_ron: EXAMPLE1_RON.to_owned(),
             route: locations_names(&locations),
             locations,
-            simulation_running: false,
             route_distance: f64::NAN,
+            route_iteration: 0,
+            simulation_running: false,
             population: 200,
+            total_iterations: 0,
         }
     }
 }
@@ -334,9 +338,13 @@ fn gui(
     const MARGIN: conrod_core::Scalar = 7.0;
 
     match simulation_event {
-        Some(SimulationEvent::NewChampion(route)) => {
+        Some(SimulationEvent::Iteration(iteration)) => {
+            app.total_iterations = iteration.clone();
+        }
+        Some(SimulationEvent::NewChampion(route, iteration)) => {
             app.route = locations_names(&route.locations);
             app.route_distance = route.distance;
+            app.route_iteration = iteration.clone();
         }
         Some(SimulationEvent::Started) => app.simulation_running = true,
         Some(SimulationEvent::Finished) => app.simulation_running = false,
@@ -352,6 +360,11 @@ fn gui(
         .font_size(16)
         .top_left_with_margins_on(ids.main_canvas, 0.0, MARGIN)
         .set(ids.distance_label, ui);
+
+    widget::Text::new(&format!("Iterations: {:06}", app.total_iterations))
+        .font_size(16)
+        .mid_top_of(ids.main_canvas)
+        .set(ids.total_iterations_label, ui);
 
     // Example buttons
 
@@ -455,7 +468,7 @@ fn gui(
         set_locations_input(app, new_locations_ron);
     }
 
-    // Population
+    // Population input
     widget::Text::new(" Population")
         .font_size(16)
         .down_from(ids.locations_ron_textedit, 10.0)
@@ -474,7 +487,8 @@ fn gui(
 
         match new_population_event {
             widget::text_box::Event::Update(new_population) => {
-                let _ = usize::from_str(&new_population).map(|x| app.population = x);
+                let _ =
+                    usize::from_str(&new_population).map(|population| app.population = population);
             }
             _ => {}
         }
@@ -488,6 +502,11 @@ fn gui(
     }
 
     // Locations
+    widget::Text::new(&format!("Iteration: {:06}", app.route_iteration))
+        .font_size(12)
+        .color(color::DARK_BROWN)
+        .top_right_with_margins_on(ids.locations_canvas, 0.0, MARGIN)
+        .set(ids.route_iteration_label, ui);
 
     ids.location_circles
         .resize(app.locations.len(), &mut ui.widget_id_generator());
@@ -545,6 +564,8 @@ fn set_locations_input(app: &mut App, new_locations_ron: String) {
 
     app.route = locations_names(&app.locations);
     app.route_distance = f64::NAN;
+    app.route_iteration = 0;
+    app.total_iterations = 0;
 }
 
 fn start_simulation_button(
@@ -593,6 +614,7 @@ widget_ids! {
     pub struct Ids {
         main_canvas,
         distance_label,
+        total_iterations_label,
         examples_label,
         example_1_button,
         example_2_button,
@@ -608,6 +630,7 @@ widget_ids! {
 
         // locations
         locations_canvas,
+        route_iteration_label,
         location_circles[],
         route_lines[],
     }
