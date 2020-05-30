@@ -221,7 +221,7 @@ impl Simulation {
                 }
             }
         };
-        let parent_x_dna_slice_start = rng.gen_range(0, length - slice_size_adjustment - 1);
+        let parent_x_dna_slice_start = rng.gen_range(0, length - slice_size_adjustment);
         let parent_x_dna_slice_end = (parent_x_dna_slice_start
             + rng.gen_range(slice_size_adjustment, (length / 2) + slice_size_adjustment))
         .min(length);
