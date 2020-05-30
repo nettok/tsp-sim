@@ -81,7 +81,9 @@ fn main() {
         .with_title("TSP simulator")
         .with_dimensions((WIN_W, WIN_H).into());
 
-    let context = glutin::ContextBuilder::new().with_multisampling(4);
+    let context = glutin::ContextBuilder::new()
+        .with_multisampling(0)
+        .with_hardware_acceleration(Some(false));
 
     let mut events_loop = winit::EventsLoop::new();
 
