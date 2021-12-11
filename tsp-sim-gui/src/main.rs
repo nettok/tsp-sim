@@ -226,23 +226,32 @@ fn simulation_control_loop(rx: Receiver<SimulationCommand>, tx: Sender<Simulatio
         match command {
             Ok(SimulationCommand::Start(simulation)) => {
                 println!("Start: {:#?}", simulation);
-                if !started.compare_and_swap(false, true, Ordering::Relaxed) {
-                    let tx2 = tx.clone();
-                    let started2 = started.clone();
-                    let stop2 = stop.clone();
-                    thread::spawn(move || {
-                        println!("...started simulation thread");
-                        simulation.run(&stop2, |event| tx2.send(event).unwrap());
-                        println!("...simulation thread is done");
-                        started2.store(false, Ordering::Relaxed);
-                        stop2.store(false, Ordering::Relaxed);
-                    });
+                match started.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) {
+                    Ok(previous_value) => {
+                        if !previous_value {
+                            start_simulation_thread(&tx, &started, &stop, simulation);
+                        }
+                    },
+                    _ => ()
                 }
             }
             Ok(SimulationCommand::Stop) => stop.store(true, Ordering::Relaxed),
             _ => {}
         }
     }
+}
+
+fn start_simulation_thread(tx: &Sender<SimulationEvent>, started: &Arc<AtomicBool>, stop: &Arc<AtomicBool>, simulation: Simulation) {
+    let tx2 = tx.clone();
+    let started2 = started.clone();
+    let stop2 = stop.clone();
+    thread::spawn(move || {
+        println!("...started simulation thread");
+        simulation.run(&stop2, |event| tx2.send(event).unwrap());
+        println!("...simulation thread is done");
+        started2.store(false, Ordering::Relaxed);
+        stop2.store(false, Ordering::Relaxed);
+    });
 }
 
 fn theme() -> conrod_core::Theme {
