@@ -115,19 +115,12 @@ fn simulation_control_loop(
         match command {
             Ok(SimulationCommand::Start(simulation)) => {
                 println!("Start: {:#?}", simulation);
-                match started.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) {
-                    Ok(previous_value) => {
-                        if !previous_value {
-                            start_simulation_thread(
-                                &tx,
-                                &started,
-                                &stop,
-                                simulation,
-                                egui_ctx.clone(),
-                            );
-                        }
+                if let Ok(previous_value) =
+                    started.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                {
+                    if !previous_value {
+                        start_simulation_thread(&tx, &started, &stop, simulation, egui_ctx.clone());
                     }
-                    _ => (),
                 }
             }
             Ok(SimulationCommand::Stop) => stop.store(true, Ordering::Relaxed),
@@ -167,7 +160,7 @@ impl eframe::App for App {
 
         match simulation_event {
             Some(SimulationEvent::Iteration(iteration)) => {
-                self.total_iterations = iteration.clone();
+                self.total_iterations = iteration;
             }
             Some(SimulationEvent::NewChampion(route, iteration)) => {
                 self.route = locations_names(&route.locations);

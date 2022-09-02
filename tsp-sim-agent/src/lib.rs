@@ -49,7 +49,7 @@ fn locations_distance(locations: &[Location]) -> f64 {
     locations
         .windows(2)
         .fold(0f64, |acc, window| match &window {
-            &[loc_a, loc_b] => acc + loc_a.distance(&loc_b),
+            &[loc_a, loc_b] => acc + loc_a.distance(loc_b),
             _ => acc,
         })
 }
@@ -86,7 +86,7 @@ impl Simulation {
 
     pub fn run<F>(&self, stop: &Arc<AtomicBool>, simulation_event_callback: F) -> Route
     where
-        F: Fn(SimulationEvent) -> (),
+        F: Fn(SimulationEvent),
     {
         assert!(self.population_size > Simulation::MATING_POOL_SIZE);
         assert!(

@@ -1,4 +1,4 @@
-pub const EXAMPLE1_RON: &'static str = r#"[
+pub const EXAMPLE1_RON: &str = r#"[
   (name: "A", x: 210.0, y: 310.0),
   (name: "B", x: 310.0, y: 210.0),
   (name: "C", x: 310.0, y: 310.0),
@@ -17,7 +17,7 @@ pub const EXAMPLE1_RON: &'static str = r#"[
   (name: "P", x: 160.00, y: 160.0),
 ]"#;
 
-pub const EXAMPLE2_RON: &'static str = r#"[
+pub const EXAMPLE2_RON: &str = r#"[
   (name: "A", x: 400.0, y: 400.0),
   (name: "B", x: 0.0, y: 0.0),
   (name: "C", x: 0.0, y:  400.0),
@@ -29,7 +29,7 @@ pub const EXAMPLE2_RON: &'static str = r#"[
   (name: "I", x: 200.0, y: 200.0),
 ]"#;
 
-pub const EXAMPLE3_RON: &'static str = r#"[
+pub const EXAMPLE3_RON: &str = r#"[
   (name: "A", x: 400.0, y: 400.0),
   (name: "B", x: 0.0, y: 0.0),
   (name: "C", x: 0.0, y:  400.0),
