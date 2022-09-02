@@ -5,5 +5,5 @@ authors = ["Ernesto Menéndez <pyalec@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-rand = "0.7"
+rand = "0.8"
 serde = "1.0"

@@ -221,9 +221,9 @@ impl Simulation {
                 }
             }
         };
-        let parent_x_dna_slice_start = rng.gen_range(0, length - slice_size_adjustment);
+        let parent_x_dna_slice_start = rng.gen_range(0..length - slice_size_adjustment);
         let parent_x_dna_slice_end = (parent_x_dna_slice_start
-            + rng.gen_range(slice_size_adjustment, (length / 2) + slice_size_adjustment))
+            + rng.gen_range(slice_size_adjustment..(length / 2) + slice_size_adjustment))
         .min(length);
         let parent_x_dna_slice = &parent_x[parent_x_dna_slice_start..parent_x_dna_slice_end];
 
@@ -282,8 +282,8 @@ impl Simulation {
 
     fn swap_genes(n: usize, route: &mut Route, route_length: usize, rng: &mut ThreadRng) {
         for _ in 0..n {
-            let i1 = rng.gen_range(0, route_length);
-            let i2 = rng.gen_range(0, route_length);
+            let i1 = rng.gen_range(0..route_length);
+            let i2 = rng.gen_range(0..route_length);
             route.locations.swap(i1, i2);
         }
     }
