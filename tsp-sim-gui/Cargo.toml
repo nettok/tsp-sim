@@ -2,21 +2,13 @@
 name = "tsp-sim-gui"
 version = "0.1.0"
 authors = ["Ernesto Menéndez <pyalec@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 tsp-sim-agent = { path = "../tsp-sim-agent" }
 
-conrod_core = "0.70.0"
-conrod_gfx = "0.70.0"
-conrod_winit = "0.70"
-gfx = "0.18"
-gfx_core = "0.9"
-gfx_window_glutin = "0.31"
-glutin = "0.21"
-winit = "0.19"
-rand = "0.7"
-find_folder = "0.3"
-ron = "0.5"
-serde = "1.0"
-itertools = "0.9"
+anyhow = { version = "1.0", features = ["backtrace"] }
+
+eframe = "0.19"
+ron = "0.8"
+itertools = "0.10"
