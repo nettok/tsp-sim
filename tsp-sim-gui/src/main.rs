@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
-
+use std::time::Instant;
 use tsp_sim_agent::{Location, Simulation, SimulationEvent};
 
 fn main() -> Result<()> {
@@ -37,6 +37,35 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+// Measures simulation iterations per second
+pub struct ThroughputCounter {
+    start_time: Instant,
+    throughput: usize,
+}
+
+impl ThroughputCounter {
+    fn new() -> Self {
+        Self {
+            start_time: Instant::now(),
+            throughput: 0,
+        }
+    }
+
+    fn start(&mut self) {
+        self.start_time = Instant::now();
+        self.throughput = 0;
+    }
+
+    fn update(&mut self, total_iterations: usize) {
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        self.throughput = if elapsed > 0.0 {
+            (total_iterations as f64 / elapsed) as usize
+        } else {
+            0
+        }
+    }
+}
+
 // Application state
 pub struct App {
     locations_ron: String,
@@ -48,6 +77,7 @@ pub struct App {
     population_text: String,
     population: usize,
     total_iterations: usize,
+    throughput_counter: ThroughputCounter,
 
     // Simulation thread events and control
     command_sender: Sender<SimulationCommand>,
@@ -70,6 +100,7 @@ impl App {
             population_text: "200".to_string(),
             population: 200,
             total_iterations: 0,
+            throughput_counter: ThroughputCounter::new(),
 
             command_sender,
             event_receiver,
@@ -161,6 +192,7 @@ impl eframe::App for App {
         match simulation_event {
             Some(SimulationEvent::Iteration(iteration)) => {
                 self.total_iterations = iteration;
+                self.throughput_counter.update(self.total_iterations);
             }
             Some(SimulationEvent::NewChampion(route, iteration)) => {
                 self.route = locations_names(&route.locations);
@@ -168,7 +200,10 @@ impl eframe::App for App {
                 self.route_distance = route.distance;
                 self.route_iteration = iteration;
             }
-            Some(SimulationEvent::Started) => self.simulation_running = true,
+            Some(SimulationEvent::Started) => {
+                self.simulation_running = true;
+                self.throughput_counter.start();
+            }
             Some(SimulationEvent::Finished) => self.simulation_running = false,
             _ => {}
         }
@@ -243,6 +278,16 @@ impl eframe::App for App {
                 egui::Layout::right_to_left(eframe::emath::Align::Min),
                 |ui| {
                     ui.label(format!("Iteration: {:06}", self.route_iteration));
+                },
+            );
+
+            ui.with_layout(
+                egui::Layout::right_to_left(eframe::emath::Align::Min),
+                |ui| {
+                    ui.label(format!(
+                        "Throughput: {:06}",
+                        self.throughput_counter.throughput
+                    ));
                 },
             );
 
