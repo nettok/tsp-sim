@@ -1,5 +1,7 @@
 [workspace]
 
+resolver = "2"
+
 members = [
     "tsp-sim-agent",
     "tsp-sim-gui",
