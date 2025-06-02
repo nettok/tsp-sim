@@ -56,8 +56,14 @@ fn locations_distance(locations: &[Location]) -> f64 {
 
 // -------------------------------------------------------------------------------------------------
 
+pub trait Simulation {
+    fn run<F>(&self, stop: &Arc<AtomicBool>, simulation_event_callback: F) -> Route
+    where
+        F: Fn(SimulationEvent);
+}
+
 #[derive(Debug)]
-pub struct Simulation {
+pub struct GeneticSimulation {
     pub locations: Vec<Location>,
     pub population_size: usize,
     pub max_iterations: Option<usize>,
@@ -72,23 +78,12 @@ pub enum SimulationEvent {
     Finished,
 }
 
-impl Simulation {
-    const MATING_POOL_SIZE: usize = 7;
-
-    pub fn new(locations: Vec<Location>) -> Simulation {
-        Simulation {
-            locations,
-            population_size: 200,
-            max_iterations: Some(100_000),
-            assume_convergence: Some(25_000),
-        }
-    }
-
-    pub fn run<F>(&self, stop: &Arc<AtomicBool>, simulation_event_callback: F) -> Route
+impl Simulation for GeneticSimulation {
+    fn run<F>(&self, stop: &Arc<AtomicBool>, simulation_event_callback: F) -> Route
     where
         F: Fn(SimulationEvent),
     {
-        assert!(self.population_size > Simulation::MATING_POOL_SIZE);
+        assert!(self.population_size > GeneticSimulation::MATING_POOL_SIZE);
         assert!(
             self.max_iterations.is_none()
                 || self.assume_convergence.is_none()
@@ -106,8 +101,8 @@ impl Simulation {
         let mut rng = thread_rng();
 
         let mut population = self.initial_random_population(&mut rng);
-        let mut mating_pool = Simulation::allocate_mating_pool(&population);
-        Simulation::select_mating_pool(&population, &mut mating_pool);
+        let mut mating_pool = GeneticSimulation::allocate_mating_pool(&population);
+        GeneticSimulation::select_mating_pool(&population, &mut mating_pool);
 
         let mut champion = mating_pool[0].to_owned();
         let mut champion_iterations: usize = 0;
@@ -120,7 +115,7 @@ impl Simulation {
             iteration += 1;
             champion_iterations += 1;
             self.next_generation(&mut population, &mating_pool, &mut rng);
-            Simulation::select_mating_pool(&population, &mut mating_pool);
+            GeneticSimulation::select_mating_pool(&population, &mut mating_pool);
             if champion.distance > mating_pool[0].distance {
                 champion = mating_pool[0].to_owned();
                 champion_iterations = 0;
@@ -142,6 +137,19 @@ impl Simulation {
 
         simulation_event_callback(SimulationEvent::Finished);
         champion
+    }
+}
+
+impl GeneticSimulation {
+    const MATING_POOL_SIZE: usize = 7;
+
+    pub fn new(locations: Vec<Location>) -> GeneticSimulation {
+        GeneticSimulation {
+            locations,
+            population_size: 200,
+            max_iterations: Some(100_000),
+            assume_convergence: Some(25_000),
+        }
     }
 
     fn initial_random_population(&self, rng: &mut ThreadRng) -> Vec<Route> {
@@ -183,7 +191,7 @@ impl Simulation {
         'mating: loop {
             let children = shuffling_mating_pool
                 .windows(2)
-                .map(|couple| Simulation::mate(couple, rng));
+                .map(|couple| GeneticSimulation::mate(couple, rng));
 
             for child in children {
                 population.push(child);
@@ -233,7 +241,7 @@ impl Simulation {
                 offspring.push(y_location.clone());
             } else if !recombined && (rng.gen_bool(0.10) || y_location == &parent_x_dna_slice[0]) {
                 // recombination has a small chance of occurring early instead of trying to attach
-                // the the DNA slice with the same gene than the other parent, to prevent a fast
+                // the DNA slice with the same gene as the other parent, to prevent a fast
                 // convergence to a local maximum and search for other possible solutions
                 for x_dna_slice_location in parent_x_dna_slice {
                     offspring.push(x_dna_slice_location.clone())
@@ -261,19 +269,19 @@ impl Simulation {
             if route.distance > mutation_threshold_distance {
                 if rng.gen_bool(0.667) {
                     // highest-chance of single mutation
-                    Simulation::swap_genes(single_mutation_swaps, route, route_length, rng);
+                    GeneticSimulation::swap_genes(single_mutation_swaps, route, route_length, rng);
                     route.distance = locations_distance(&route.locations);
                 } else if rng.gen_bool(0.667) {
                     // high-chance of small mutation
-                    Simulation::swap_genes(small_mutation_swaps, route, route_length, rng);
+                    GeneticSimulation::swap_genes(small_mutation_swaps, route, route_length, rng);
                     route.distance = locations_distance(&route.locations);
                 } else if rng.gen_bool(0.667) {
                     // smaller chance of bigger mutation
-                    Simulation::swap_genes(medium_mutation_swaps, route, route_length, rng);
+                    GeneticSimulation::swap_genes(medium_mutation_swaps, route, route_length, rng);
                     route.distance = locations_distance(&route.locations);
                 } else {
                     // yet smaller chance of yet bigger mutation
-                    Simulation::swap_genes(big_mutation_swaps, route, route_length, rng);
+                    GeneticSimulation::swap_genes(big_mutation_swaps, route, route_length, rng);
                     route.distance = locations_distance(&route.locations);
                 }
             }
@@ -298,12 +306,12 @@ impl Simulation {
         let mate6 = population[6].clone();
 
         let mating_pool = vec![mate0, mate1, mate2, mate3, mate4, mate5, mate6];
-        debug_assert_eq!(mating_pool.len(), Simulation::MATING_POOL_SIZE);
+        debug_assert_eq!(mating_pool.len(), GeneticSimulation::MATING_POOL_SIZE);
         mating_pool
     }
 
     fn select_mating_pool(population: &[Route], mating_pool: &mut [Route]) {
-        debug_assert_eq!(mating_pool.len(), Simulation::MATING_POOL_SIZE);
+        debug_assert_eq!(mating_pool.len(), GeneticSimulation::MATING_POOL_SIZE);
 
         for route in population {
             if route.distance < mating_pool[0].distance {
@@ -358,7 +366,7 @@ mod tests {
             },
         ];
 
-        let simulation = Simulation::new(locations.to_owned());
+        let simulation = GeneticSimulation::new(locations.to_owned());
         let solution = simulation.run(&Arc::new(AtomicBool::default()), |_| {});
         assert_eq!(solution, Route::new(locations))
     }

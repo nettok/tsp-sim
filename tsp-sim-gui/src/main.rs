@@ -16,6 +16,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Instant;
 use tsp_sim_agent::{Location, Simulation, SimulationEvent};
+use tsp_sim_agent_parallel::ParallelSimulation;
 
 fn main() -> Result<()> {
     let options = eframe::NativeOptions::default();
@@ -130,7 +131,7 @@ fn set_locations_input(app: &mut App, new_locations_ron: String) {
 
 #[derive(Debug)]
 enum SimulationCommand {
-    Start(Simulation),
+    Start(ParallelSimulation),
     Stop,
 }
 
@@ -164,7 +165,7 @@ fn start_simulation_thread(
     tx: &Sender<SimulationEvent>,
     started: &Arc<AtomicBool>,
     stop: &Arc<AtomicBool>,
-    simulation: Simulation,
+    simulation: ParallelSimulation,
     egui_ctx: egui::Context,
 ) {
     let tx2 = tx.clone();
@@ -262,9 +263,9 @@ impl eframe::App for App {
             if ui.button(simulation_control_button_text).clicked() {
                 if !self.simulation_running {
                     self.command_sender
-                        .send(SimulationCommand::Start(Simulation {
+                        .send(SimulationCommand::Start(ParallelSimulation {
                             population_size: self.population,
-                            ..Simulation::new(self.locations.clone())
+                            ..ParallelSimulation::new(self.locations.clone())
                         }))
                         .unwrap();
                 } else {

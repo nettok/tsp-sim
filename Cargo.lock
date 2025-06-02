@@ -1822,6 +1822,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsp-sim-agent-parallel"
+version = "0.1.0"
+dependencies = [
+ "tsp-sim-agent",
+]
+
+[[package]]
 name = "tsp-sim-gui"
 version = "0.1.0"
 dependencies = [
@@ -1830,6 +1837,7 @@ dependencies = [
  "itertools",
  "ron",
  "tsp-sim-agent",
+ "tsp-sim-agent-parallel",
 ]
 
 [[package]]

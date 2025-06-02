@@ -4,5 +4,6 @@ resolver = "2"
 
 members = [
     "tsp-sim-agent",
+    "tsp-sim-agent-parallel",
     "tsp-sim-gui",
 ]

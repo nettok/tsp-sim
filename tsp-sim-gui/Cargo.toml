@@ -6,6 +6,7 @@ edition = "2021"
 
 [dependencies]
 tsp-sim-agent = { path = "../tsp-sim-agent" }
+tsp-sim-agent-parallel = { path = "../tsp-sim-agent-parallel" }
 
 anyhow = { version = "1.0", features = ["backtrace"] }
 
