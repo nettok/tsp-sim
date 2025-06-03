@@ -5,6 +5,8 @@ use std::thread;
 use std::thread::JoinHandle;
 use tsp_sim_agent::{GeneticSimulation, Location, Route, Simulation, SimulationEvent};
 
+const NUM_THREADS: usize = 2;
+
 struct ThreadControl {
     event_receiver: Receiver<SimulationEvent>,
     stop: Arc<AtomicBool>,
@@ -24,17 +26,65 @@ impl Simulation for ParallelSimulation {
     where
         F: Fn(SimulationEvent),
     {
-        let thread_control = self.spawn_simulation_agent();
+        assert!(NUM_THREADS > 0);
+
+        let controls: Vec<(usize, ThreadControl)> = (0..NUM_THREADS)
+            .map(|index| (index, self.spawn_simulation_agent()))
+            .collect();
+
+        let thread_count = controls.len();
+        let mut started_count: usize = 0;
+        let mut finished_count: usize = 0;
+        let mut iterations: [usize; NUM_THREADS] = [0; NUM_THREADS];
+        let mut champion = Route {
+            locations: vec![],
+            distance: f64::MAX,
+        };
 
         loop {
-            let simulation_event = thread_control.event_receiver.try_recv().ok();
+            let simulation_events: Vec<(usize, SimulationEvent)> = controls
+                .iter()
+                .filter_map(|(index, control)| {
+                    control
+                        .event_receiver
+                        .try_recv()
+                        .ok()
+                        .map(|event| (index.clone(), event))
+                })
+                .collect();
 
-            match simulation_event {
-                Some(SimulationEvent::Finished) => {
-                    break;
+            for (index, simulation_event) in simulation_events {
+                match simulation_event {
+                    SimulationEvent::Started => {
+                        started_count += 1;
+                        if started_count >= thread_count {
+                            simulation_event_callback(SimulationEvent::Started);
+                        }
+                    }
+                    SimulationEvent::Finished => {
+                        finished_count += 1;
+                    }
+                    SimulationEvent::Iteration(iteration) => {
+                        iterations[index] = iteration;
+                        let iterations = iterations.iter().sum();
+                        simulation_event_callback(SimulationEvent::Iteration(iterations));
+                    }
+                    SimulationEvent::NewChampion(route, iteration) => {
+                        iterations[index] = iteration;
+                        if route.distance < champion.distance {
+                            let iterations = iterations.iter().sum();
+                            champion = route;
+                            simulation_event_callback(SimulationEvent::NewChampion(
+                                champion.clone(),
+                                iterations,
+                            ));
+                        }
+                    }
                 }
-                Some(event) => simulation_event_callback(event),
-                _ => {}
+            }
+
+            if finished_count >= thread_count {
+                break;
             }
 
             if stop.load(Ordering::Relaxed) {
@@ -43,8 +93,18 @@ impl Simulation for ParallelSimulation {
         }
 
         simulation_event_callback(SimulationEvent::Finished);
-        thread_control.stop.store(true, Ordering::Relaxed);
-        thread_control.join_handle.join().unwrap()
+
+        controls
+            .iter()
+            .for_each(|(_, control)| control.stop.store(true, Ordering::Relaxed));
+
+        let mut routes: Vec<Route> = controls
+            .into_iter()
+            .map(|(_, control)| control.join_handle.join().unwrap())
+            .collect();
+
+        routes.sort_by(|r1, r2| r1.distance.total_cmp(&r2.distance));
+        routes[0].clone()
     }
 }
 
